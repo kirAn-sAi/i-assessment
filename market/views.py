@@ -1,65 +1,18 @@
-
-from django.shortcuts import HttpResponse
-from rest_framework import serializers, status
+from django.shortcuts import render
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.filters import SearchFilter
-# from django_filters.rest_framework import DjangoFilterBackend
 
-
-from .models import Location, Department, Category, SubCategory
+from .models import Location, Department, Category, SubCategory, SKU
 from .baseviewset import BaseViewSet
-
-
-class LocationSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Location
-        fields = "__all__"
-
-
-class DepartmentSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Department
-        fields = "__all__"
-
-
-class CategorySerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Category
-        fields = "__all__"
-
-
-class SubCategorySerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = SubCategory
-        fields = "__all__"
-
-
-class SKUSerializer(serializers.ModelSerializer):
-    category = serializers.CharField(source="category.name")
-    department = serializers.CharField(source="category.department.name")
-    location = serializers.CharField(source="category.department.location.name")
-
-    class Meta:
-        model = SubCategory
-        fields = ('name', 'category', 'department', 'location')
-
-
-class SKUViewSet(BaseViewSet):
-    queryset = SubCategory.objects.all()
-    serializer_class = SKUSerializer
-    search_fields = ['name', 'category']
-    filter_backends = [SearchFilter]
-    filterset_fields = ['name', 'category']
-
-    def list(self,request):
-        query_set = SubCategory.objects.select_related('category').all()
-        resp = SKUSerializer(query_set, many=True)
-        return Response(resp.data, status=status.HTTP_200_OK)
+from .sku_form import SKUFilterForm
+from .model_serializers import (
+    LocationSerializer,
+    DepartmentSerializer,
+    CategorySerializer,
+    SubCategorySerializer,
+    SKUSerializer,
+)
 
 
 class LocationViewSet(BaseViewSet):
@@ -67,22 +20,46 @@ class LocationViewSet(BaseViewSet):
     serializer_class = LocationSerializer
 
     @action(methods=['get'], detail=True)
-    def departments(self, request, pk):
+    def department(self, request, pk):
+        """
+        sample url:  'host:port/market/api/v1/location/1/department/'
+        returns: list of categories (name, description) that are related to location with id 1
+        """
         loc = Location.objects.get(pk=pk)
         q = loc.department_set.all()
         resp = DepartmentSerializer(q, many=True)
         return Response(resp.data, status=status.HTTP_200_OK)
 
-    # @action(methods=["get"], detail=True, url_path="departments/(P<dep_id>\d+)/category/$")
-    # # @action(methods=["get"], detail=True)
-    # def categories(self, request, loc_id, dep_id):
-    #     resp = {}
-    #     import pdb; pdb.set_trace()
-    #     return Response(resp, status=status.HTTP_200_OK)
+    @action(methods=["get"], detail=True, url_path="department/(?P<dep_id>[^/.]+)/category")
+    def category(self, request, pk, dep_id=None):
+        """
+        sample url: host:port/market/api/v1/location/2/department/3/category/
+        returns: list of categories (name, description) that are related to
+                    location with id 2
+                    department with id 3
+        """
+        cats = Category.objects.filter(department_id=dep_id).filter(department__location__id=pk).all()
+        resp = [(row.name, row.description) for row in cats]
+        return Response({"response": resp}, status=status.HTTP_200_OK)
+
+    @action(methods=["get"], detail=True,
+            url_path="department/(?P<dep_id>[^/.]+)/category/(?P<cat_id>[^/.]+)/subcategory")
+    def subcategory(self, request, pk, dep_id, cat_id):
+        """
+        sample url: host:port/market/api/v1/location/2/department/3/category/4/subcategory/
+        returns: list of sub categories (name, description) that are related to
+                    location with id 2
+                    department with id 3
+                    category with id 4
+        """
+        subs = SubCategory.objects.filter(category_id=cat_id).filter(
+            category__department_id=dep_id).filter(category__department__location__id=pk).all()
+        # cats = Category.objects.filter(department_id=dep_id).filter(department__location__id=pk).all()
+        resp = [(row.name, row.description) for row in subs]
+        return Response({"response": resp}, status=status.HTTP_200_OK)
 
 
 class DepartmentViewSet(BaseViewSet):
-
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
 
@@ -95,4 +72,39 @@ class CategoryViewSet(BaseViewSet):
 class SubCategoryViewSet(BaseViewSet):
     queryset = SubCategory.objects.all()
     serializer_class = SubCategorySerializer
+
+
+class SKUViewSet(BaseViewSet):
+    # form = SKUForm
+    queryset = SKU.objects.all()
+    serializer_class = SKUSerializer
+
+    @staticmethod
+    def get_matched_skus(request):
+        data = request.POST
+        qry = SKU.objects.values_list(
+
+            'id', 'name', 'subcategory__category__department__location__name',
+            'subcategory__category__department__name',
+            'subcategory__category__name', 'subcategory__name',
+        ).filter(
+            subcategory__name=data.get("subcategory").strip(),
+            subcategory__category__name=data.get("category").strip(),
+            subcategory__category__department__name=data.get("department").strip(),
+            subcategory__category__department__location__name=data.get("location").strip(),
+        )
+        return qry
+
+    @action(methods=['GET', 'POST'], detail=False, url_path='findsku')
+    def find_sku(self, request):
+        """
+        sample url: host:port/market/api/v1/sku/findsku/
+        return: Details of SKU Along with lined Parent objects
+        """
+        if request.method == "GET":
+            return render(request, "find_sku.html", {"form": SKUFilterForm()})
+        else:
+            resp = self.get_matched_skus(request)
+            data = [row for row in resp] if resp else []
+            return Response({"response": data})
 

@@ -1,0 +1,13 @@
+
+
+<form action="/market/api/v1/sku/findsku/" method="post">
+    {% csrf_token %}
+    {% for field in form %}
+        <div class="fieldWrapper">
+            {{ field.errors }}
+            <p>{{ field.label_tag }} {{ field }}</p>
+        </div>
+    {% endfor %}
+    <input type="submit" value="Submit">
+    <button type="button">Take Me to Home</button>
+</form>
