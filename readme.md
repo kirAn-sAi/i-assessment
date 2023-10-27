@@ -17,3 +17,9 @@ I have created the necessary models, their respective view sets and serializers.
 - To find the SKU details `host:port/market/api/v1/sku/findsku/`
 
 > Check the view specific methods for more details in views.py
+
+> To create an entry for the models you just have to navigate to the bottom of the list page 
+> there you will find a HTML form to enter the required fields and to POST them to database
+> 
+> To update or to delete a specific record use the details API, In that page 
+> you will get the option to update/delete that particular record
